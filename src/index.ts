@@ -1,5 +1,9 @@
 import { Hono } from 'hono';
-import { webhookHandler } from './middleware';
+import {
+  handlingTwitterCallback,
+  settingUpTwitter,
+  webhookHandler,
+} from './middleware';
 
 type Bindings = {
   GITHUB_WEBHOOK_SECRET: string;
@@ -17,5 +21,9 @@ app.get('/', (c) => {
 });
 
 app.post('/webhook', ...webhookHandler);
+
+// Hndling the twitter callback
+app.get('/setup-twitter', ...settingUpTwitter);
+app.get('/twitter/callback', ...handlingTwitterCallback);
 
 export default app;

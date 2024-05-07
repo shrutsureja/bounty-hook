@@ -5,7 +5,8 @@
   },
   "dependencies": {
     "@notionhq/client": "^2.2.15",
-    "hono": "^4.3.2"
+    "hono": "^4.3.2",
+    "twitter-api-v2": "^1.16.4"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20240403.0",

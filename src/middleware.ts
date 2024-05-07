@@ -1,7 +1,9 @@
 import { createFactory } from 'hono/factory';
 import { extractAmount, hexToBytes, isBountyComment } from './utils';
 import { addBountyToNotion } from './notion';
-
+import TwitterAPI from 'twitter-api-v2';
+import twitterStore from './twitter/twitterStore';
+import { tweetBounty } from './twitter';
 const encoder = new TextEncoder();
 
 const factory = createFactory();
@@ -74,6 +76,13 @@ export const webhookHandler = factory.createHandlers(
         },
       });
 
+      const clientId = c.env.TWITTER_CLIENT_ID;
+      const clientSecret = c.env.TWITTER_CLIENT_SECRET;
+      await tweetBounty({
+        clientId,
+        clientSecret,
+      });
+
       return c.json({ message: 'Webhook received' });
     } catch (e) {
       console.log(e);
@@ -83,3 +92,78 @@ export const webhookHandler = factory.createHandlers(
   }
 );
 
+export const settingUpTwitter = factory.createHandlers(async (c) => {
+  try {
+    const clientId = c.env.TWITTER_CLIENT_ID;
+    const clientSecret = c.env.TWITTER_CLIENT_SECRET;
+    const twitterClient = new TwitterAPI({
+      clientId,
+      clientSecret,
+    });
+
+    const callbackURL = c.env.TWITTER_CALLBACK_URL;
+
+    // generate the OAuth2 link
+    // this will return the URL, codeVerifier and state
+    // the codeVerifier and state are used to generate the access token
+    // the url is the link that the user needs to visit
+    const { url, codeVerifier, state } = twitterClient.generateOAuth2AuthLink(
+      callbackURL,
+      { scope: ['tweet.read', 'tweet.write', 'users.read', 'offline.access'] }
+    );
+
+    // need to store the codeVerifier and the state
+    // so storing it in a class variable
+    twitterStore.codeVerifier = codeVerifier;
+    twitterStore.state = state;
+
+    return c.redirect(url);
+  } catch (e) {
+    console.log(e);
+    c.status(500);
+    return c.json({ message: 'Error setting up Twitter' });
+  }
+});
+
+export const handlingTwitterCallback = factory.createHandlers(async (c) => {
+  try {
+    const clientId = c.env.TWITTER_CLIENT_ID;
+    const clientSecret = c.env.TWITTER_CLIENT_SECRET;
+    const twitterClient = new TwitterAPI({
+      clientId,
+      clientSecret,
+    });
+
+    const { state, code } = c.req.query();
+
+    // check if the state is the same as the one we stored
+    if (state !== twitterStore.state) {
+      c.status(400);
+      return c.json({ message: 'Invalid state' });
+    }
+
+    const callbackURL = c.env.TWITTER_CALLBACK_URL;
+    // generate the access token
+    const {
+      client: loggedClient,
+      accessToken,
+      refreshToken,
+    } = await twitterClient.loginWithOAuth2({
+      code,
+      codeVerifier: twitterStore.codeVerifier,
+      redirectUri: callbackURL,
+    });
+
+    // Storing the access token and refresh token
+    twitterStore.accessToken = accessToken;
+    twitterStore.refreshToken = refreshToken!; // refresh token is not null
+
+    const { data } = await loggedClient.v2.me();
+
+    return c.json(data);
+  } catch (e) {
+    console.log(e);
+    c.status(500);
+    return c.json({ message: 'Error handling Twitter callback' });
+  }
+});

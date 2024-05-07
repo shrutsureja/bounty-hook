@@ -19,3 +19,6 @@ NAME = "Sargam"
 
 # [ai]
 # binding = "AI"
+
+# For twitter API compatibility with node
+compatibility_flags = [ "nodejs_compat" ]
