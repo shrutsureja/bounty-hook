@@ -1,7 +1,11 @@
 import { createFactory } from 'hono/factory';
 import { extractAmount, hexToBytes, isBountyComment } from './utils';
-import { addBountyToNotion } from './notion';
-import { twitterClient } from './twitter';
+import {
+  generateOAuth2AuthLink,
+  loginWithOauth2,
+  refreshOAuth2Token,
+  tweet,
+} from './twitter';
 
 const encoder = new TextEncoder();
 
@@ -89,10 +93,6 @@ export const webhookHandler = factory.createHandlers(
       //   },
       // });
 
-      const twitterClientInstance = new twitterClient(
-        c.env.TWITTER_CLIENT_API_KEY,
-        c.env.TWITTER_CLIENT_API_SECRET
-      );
       // Tweet Payload
       const tweetPayload = `Contrulations to the user ${author} for winning a bounty of ${bountyAmount}! 🎉🎉🎉 #bounty #winner`;
       // Making a tweet with the bounty amount
@@ -100,19 +100,20 @@ export const webhookHandler = factory.createHandlers(
       console.log('RefreshToken=', twitterStore.refreshToken);
 
       const { accessToken: newAccessToken, refreshToken: newRefreshToken } =
-        await twitterClientInstance.refreshOAuth2Token(
-          twitterStore.refreshToken
-        );
+        await refreshOAuth2Token({
+          refreshToken: twitterStore.refreshToken,
+          clientId: c.env.TWITTER_CLIENT_API_KEY,
+        });
 
       twitterStore.accessToken = newAccessToken;
       twitterStore.refreshToken = newRefreshToken;
       console.log('newAccessToken=', twitterStore.accessToken);
       console.log('newRefreshToken=', twitterStore.refreshToken);
 
-      const response = await twitterClientInstance.tweet(
-        tweetPayload,
-        twitterStore.accessToken
-      );
+      const response = await tweet({
+        tweet: tweetPayload,
+        accessToken: twitterStore.accessToken,
+      });
       if (!response.data) {
         return c.json({ message: 'Error in tweeting' });
       }
@@ -133,19 +134,15 @@ export const webhookHandler = factory.createHandlers(
 export const settingUpTwitter = factory.createHandlers(async (c) => {
   // Generating oauth2 URL
   // storing this for later use
-  const twitterClientInstance = new twitterClient(
-    c.env.TWITTER_CLIENT_API_KEY,
-    c.env.TWITTER_CLIENT_API_SECRET
-  );
   // Generating the oauth2 URL
-  const { url, codeVerifier, state } =
-    await twitterClientInstance.generateOAuth2AuthLink({
-      callbackUrl: c.env.TWITTER_CALLBACK_URL,
-      state: 'state',
-      codeChallenge: 'challenge',
-      code_challenge_method: 'plain',
-      scope: ['tweet.read', 'tweet.write', 'users.read', 'offline.access'],
-    });
+  const { url, codeVerifier, state } = await generateOAuth2AuthLink({
+    callbackUrl: c.env.TWITTER_CALLBACK_URL,
+    state: 'state',
+    codeChallenge: 'challenge',
+    code_challenge_method: 'plain',
+    scope: ['tweet.read', 'tweet.write', 'users.read', 'offline.access'],
+    clientId: c.env.TWITTER_CLIENT_API_KEY,
+  });
 
   // storing this for later use
   twitterStore.codeVerifier = codeVerifier;
@@ -172,19 +169,15 @@ export const twitterOauth2CallbackHandler = factory.createHandlers(
       return c.status(401);
     }
 
-    const twitterClientInstance = new twitterClient(
-      c.env.TWITTER_CLIENT_API_KEY,
-      c.env.TWITTER_CLIENT_API_SECRET
-    );
-
     // Now passing the code,callbackUrl and codeVerifier to loginWithOauth2 method
     // to get the access token and refresh token
-    const { accessToken, refreshToken } =
-      await twitterClientInstance.loginWithOauth2({
-        code: code,
-        codeVerifier: twitterStore.codeVerifier,
-        redirectUri: c.env.TWITTER_CALLBACK_URL,
-      });
+    const { accessToken, refreshToken } = await loginWithOauth2({
+      code: code,
+      codeVerifier: twitterStore.codeVerifier,
+      redirectUri: c.env.TWITTER_CALLBACK_URL,
+      clientId: c.env.TWITTER_CLIENT_API_KEY,
+      clientSecret: c.env.TWITTER_CLIENT_SECRET,
+    });
 
     // If the access token or refresh token is not present return 401
     if (!accessToken || !refreshToken) return c.status(401);
