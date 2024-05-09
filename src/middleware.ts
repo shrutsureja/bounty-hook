@@ -63,6 +63,8 @@ export const webhookHandler = factory.createHandlers(
   checkGhSignature,
   async (c) => {
     try {
+      let currentRefreshToken;
+      let currentAccessToken;
       const adminUsernames: string[] = c.env.ADMIN_USERNAMES.split(',');
       const notionDatabaseId = c.env.NOTION_DATABASE_ID;
       const notionApiKey = c.env.NOTION_API_KEY;
@@ -93,31 +95,39 @@ export const webhookHandler = factory.createHandlers(
       //   },
       // });
 
-      // Tweet Payload
-      const tweetPayload = `Contrulations to the user ${author} for winning a bounty of ${bountyAmount}! 🎉🎉🎉 #bounty #winner`;
       // Making a tweet with the bounty amount
+      console.log('Complete twitter store', JSON.stringify(twitterStore));
       console.log('AccessToken=', twitterStore.accessToken);
       console.log('RefreshToken=', twitterStore.refreshToken);
 
-      const { accessToken: newAccessToken, refreshToken: newRefreshToken } =
-        await refreshOAuth2Token({
+      const { refreshToken, accessToken } = twitterStore;
+      currentRefreshToken = refreshToken;
+      currentAccessToken = accessToken;
+      // Tweet Payload
+      const tweetPayload = `Contrulations to the user ${author} for winning a bounty of ${bountyAmount}! 🎉🎉🎉 #bounty #winner`;
+
+      if (!currentAccessToken) {
+        const { accessToken, refreshToken } = await refreshOAuth2Token({
           refreshToken: twitterStore.refreshToken,
           clientId: c.env.TWITTER_CLIENT_API_KEY,
         });
 
-      twitterStore.accessToken = newAccessToken;
-      twitterStore.refreshToken = newRefreshToken;
-      console.log('newAccessToken=', twitterStore.accessToken);
-      console.log('newRefreshToken=', twitterStore.refreshToken);
+        currentAccessToken = accessToken;
+        currentRefreshToken = refreshToken;
+        console.log('newAccessToken=', twitterStore.accessToken);
+        console.log('newRefreshToken=', twitterStore.refreshToken);
+      }
 
       const response = await tweet({
         tweet: tweetPayload,
-        accessToken: twitterStore.accessToken,
+        accessToken: currentAccessToken,
       });
       if (!response.data) {
         return c.json({ message: 'Error in tweeting' });
       }
 
+      twitterStore.accessToken = currentAccessToken;
+      twitterStore.refreshToken = currentRefreshToken;
       return c.json({ message: 'Webhook received' });
     } catch (e) {
       console.log(e);
