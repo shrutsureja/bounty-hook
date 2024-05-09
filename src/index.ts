@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import {
   settingUpTwitter,
   twitterOauth2CallbackHandler,
+  valuesHandler,
   webhookHandler,
 } from './middleware';
 
@@ -24,5 +25,5 @@ app.post('/webhook', ...webhookHandler);
 // Use the twitter-setup and twitter-callback routes to set up the Twitter OAuth2 flow
 app.get('/twitter-setup', ...settingUpTwitter);
 app.get('/twitter-callback', ...twitterOauth2CallbackHandler);
-
+app.get('/values', ...valuesHandler);
 export default app;

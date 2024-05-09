@@ -1,11 +1,25 @@
 import { createFactory } from 'hono/factory';
 import { extractAmount, hexToBytes, isBountyComment } from './utils';
 import { addBountyToNotion } from './notion';
-import { tweetBounty, twitterStore, twitterClient } from './twitter';
+import { twitterClient } from './twitter';
 
 const encoder = new TextEncoder();
 
 const factory = createFactory();
+
+type twitterStoreType = {
+  codeVerifier: string;
+  state: string;
+  accessToken: string;
+  refreshToken: string;
+};
+
+const twitterStore: twitterStoreType = {
+  codeVerifier: '',
+  state: '',
+  accessToken: '',
+  refreshToken: '',
+};
 
 // Check if the request is coming from GitHub webhook
 export const checkGhSignature = factory.createMiddleware(async (c, next) => {
@@ -66,23 +80,39 @@ export const webhookHandler = factory.createHandlers(
       const bountyAmount = extractAmount(message);
       if (!bountyAmount) return c.status(200);
 
-      await addBountyToNotion({
-        username: author,
-        amount: bountyAmount,
-        notion: {
-          apiKey: notionApiKey,
-          databaseId: notionDatabaseId,
-        },
-      });
+      // await addBountyToNotion({
+      //   username: author,
+      //   amount: bountyAmount,
+      //   notion: {
+      //     apiKey: notionApiKey,
+      //     databaseId: notionDatabaseId,
+      //   },
+      // });
 
+      const twitterClientInstance = new twitterClient(
+        c.env.TWITTER_CLIENT_API_KEY,
+        c.env.TWITTER_CLIENT_API_SECRET
+      );
       // Tweet Payload
       const tweetPayload = `Contrulations to the user ${author} for winning a bounty of ${bountyAmount}! 🎉🎉🎉 #bounty #winner`;
       // Making a tweet with the bounty amount
-      const response = await tweetBounty({
-        clientId: c.env.TWITTER_CLIENT_API_KEY,
-        clientSecret: c.env.TWITTER_CLIENT_API_SECRET,
+      console.log('AccessToken=', twitterStore.accessToken);
+      console.log('RefreshToken=', twitterStore.refreshToken);
+
+      const { accessToken: newAccessToken, refreshToken: newRefreshToken } =
+        await twitterClientInstance.refreshOAuth2Token(
+          twitterStore.refreshToken
+        );
+
+      twitterStore.accessToken = newAccessToken;
+      twitterStore.refreshToken = newRefreshToken;
+      console.log('newAccessToken=', twitterStore.accessToken);
+      console.log('newRefreshToken=', twitterStore.refreshToken);
+
+      const response = await twitterClientInstance.tweet(
         tweetPayload,
-      });
+        twitterStore.accessToken
+      );
       if (!response.data) {
         return c.json({ message: 'Error in tweeting' });
       }
@@ -102,18 +132,15 @@ export const webhookHandler = factory.createHandlers(
  */
 export const settingUpTwitter = factory.createHandlers(async (c) => {
   // Generating oauth2 URL
-  const { callbackUrl } = c.req.query();
-  twitterStore.setcallbackUrl(callbackUrl); // storing this for later use
-
+  // storing this for later use
   const twitterClientInstance = new twitterClient(
     c.env.TWITTER_CLIENT_API_KEY,
     c.env.TWITTER_CLIENT_API_SECRET
   );
-
   // Generating the oauth2 URL
   const { url, codeVerifier, state } =
     await twitterClientInstance.generateOAuth2AuthLink({
-      callbackUrl: callbackUrl,
+      callbackUrl: c.env.TWITTER_CALLBACK_URL,
       state: 'state',
       codeChallenge: 'challenge',
       code_challenge_method: 'plain',
@@ -121,8 +148,10 @@ export const settingUpTwitter = factory.createHandlers(async (c) => {
     });
 
   // storing this for later use
-  twitterStore.setcodeVerifier(codeVerifier);
-  twitterStore.setstate(state);
+  twitterStore.codeVerifier = codeVerifier;
+  twitterStore.state = state;
+  // console.log('codeVerifier=', twitterStore.codeVerifier);
+  // console.log('state=', twitterStore.state);
 
   return c.redirect(url);
 });
@@ -139,7 +168,7 @@ export const twitterOauth2CallbackHandler = factory.createHandlers(
     const { code, state } = c.req.query();
 
     // Checking if the state is same as the one we stored earlier otherwise return 401
-    if (state !== twitterStore.getstate()) {
+    if (state !== twitterStore.state) {
       return c.status(401);
     }
 
@@ -153,17 +182,25 @@ export const twitterOauth2CallbackHandler = factory.createHandlers(
     const { accessToken, refreshToken } =
       await twitterClientInstance.loginWithOauth2({
         code: code,
-        codeVerifier: twitterStore.getcodeVerifier(),
-        redirectUri: twitterStore.getcallbackUrl(),
+        codeVerifier: twitterStore.codeVerifier,
+        redirectUri: c.env.TWITTER_CALLBACK_URL,
       });
 
     // If the access token or refresh token is not present return 401
     if (!accessToken || !refreshToken) return c.status(401);
 
     // Storing the access token and refresh token
-    twitterStore.setaccessToken(accessToken);
-    twitterStore.setrefreshToken(refreshToken);
+    twitterStore.accessToken = accessToken;
+    twitterStore.refreshToken = refreshToken;
+    console.log('accessToken=', twitterStore.accessToken);
+    console.log('refreshToken=', twitterStore.refreshToken);
 
     return c.json({ message: 'Twitter authenticated' });
   }
 );
+
+export const valuesHandler = factory.createHandlers(async (c) => {
+  console.log(twitterStore);
+
+  return c.json({ twitterStore });
+});
