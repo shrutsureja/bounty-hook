@@ -112,10 +112,10 @@ export const webhookHandler = factory.createHandlers(
           clientId: c.env.TWITTER_CLIENT_API_KEY,
         });
 
+        console.log('newAccessToken=', accessToken);
+        console.log('newRefreshToken=', refreshToken);
         currentAccessToken = accessToken;
         currentRefreshToken = refreshToken;
-        console.log('newAccessToken=', twitterStore.accessToken);
-        console.log('newRefreshToken=', twitterStore.refreshToken);
       }
 
       const response = await tweet({
